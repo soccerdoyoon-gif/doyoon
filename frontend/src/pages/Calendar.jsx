@@ -2,75 +2,71 @@ import { useEffect, useState } from "react";
 import { api, qs } from "../api";
 import ContentEditor from "../components/ContentEditor";
 import { MockBadge, PlatformBadge, StatusBadge, useAction } from "../components/ui";
-import { addDays, parseUTC, PLATFORMS, startOfDay, STATUS_LABEL } from "../util";
-
-const sameDay = (a, b) => a.toDateString() === b.toDateString();
+import { t } from "../i18n";
+import { addDaysKey, dayKey, fmtDayKey, fmtTime, hourOf, keyToISO, parseUTC, PLATFORMS, statusLabel, todayKey, tzLabel, weekdayOfKey } from "../util";
 
 function Item({ it, onOpen }) {
-  const t = parseUTC(it.calendar_time);
   const draggable = it.status !== "PUBLISHED";
+  const thumb = (it.assets || []).find((a) => a.kind === "thumbnail" || a.kind === "image");
   return (
     <div
       className={`cal-item st-${it.status}`}
       draggable={draggable}
       onDragStart={(e) => e.dataTransfer.setData("text/plain", String(it.id))}
       onClick={() => onOpen(it.id)}
-      title={`${PLATFORMS[it.platform]} · ${STATUS_LABEL[it.status]}${it.campaign_name ? " · " + it.campaign_name : ""}\n${it.caption || ""}`}
+      title={`${PLATFORMS[it.platform]} · ${statusLabel(it.status)}${it.campaign_name ? " · " + it.campaign_name : ""}\n${it.caption || ""}`}
     >
-      <div className="spread"><b>{t.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</b><PlatformBadge p={it.platform} /></div>
+      <div className="spread"><b>{fmtTime(it.calendar_time)}</b><PlatformBadge p={it.platform} /></div>
+      {thumb && <img src={thumb.url} alt="" style={{ width: "100%", maxHeight: 90, objectFit: "cover", borderRadius: 4, marginTop: 4 }} />}
       <div>{it.title || it.hook}</div>
       <div className="row" style={{ marginTop: 3 }}>
         <StatusBadge s={it.status} />
         {it.campaign_name && <span className="badge">{it.campaign_name}</span>}
-        {(it.media_path || it.media_url) && <span title="미디어 첨부">🖼️</span>}
+        {(it.assets || []).some((a) => a.kind === "video") && <span title={t("영상")}>🎬</span>}
+        {(it.media_path || it.media_url) && <span title={t("미디어 첨부")}>🖼️</span>}
         {it.is_dry_run && <MockBadge label="DRY" />}
       </div>
       {it.status === "PUBLISHED" && it.latest_metrics && <div className="hint">❤ {it.latest_metrics.likes ?? "-"} · 👁 {it.latest_metrics.views ?? it.latest_metrics.impressions ?? "-"}</div>}
       {it.status === "FAILED" && <div className="hint" style={{ color: "var(--bad)" }}>{it.last_error}</div>}
-      {it.status === "READY_FOR_REVIEW" && <div className="hint">제안 시간 (승인 전)</div>}
+      {it.status === "READY_FOR_REVIEW" && <div className="hint">{t("제안 시간 (승인 전)")}</div>}
     </div>
   );
 }
 
 export default function CalendarPage() {
   const [view, setView] = useState("week");
-  const [anchor, setAnchor] = useState(startOfDay(new Date()));
+  const [anchor, setAnchor] = useState(todayKey());
   const [items, setItems] = useState([]);
   const [dropKey, setDropKey] = useState(null);
   const [open, setOpen] = useState(null);
   const [run] = useAction();
 
-  const start = view === "week" ? addDays(anchor, -((anchor.getDay() + 6) % 7)) : anchor;
+  const startKey = view === "week" ? addDaysKey(anchor, -((weekdayOfKey(anchor) + 6) % 7)) : anchor;
   const days = view === "week" ? 7 : 1;
-  const end = addDays(start, days);
-  const load = () => api.get("/api/calendar" + qs({ start: start.toISOString(), end: end.toISOString() })).then(setItems);
+  const load = () => api.get("/api/calendar" + qs({ start: keyToISO(startKey), end: keyToISO(addDaysKey(startKey, days)) })).then(setItems);
   useEffect(() => {
     load();
   }, [view, anchor]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const move = async (id, target) => {
+  const move = async (id, iso) => {
     setDropKey(null);
-    const r = await run(() => api.patch(`/api/calendar/${id}`, { scheduled_at: target.toISOString() }), "일정을 변경했습니다");
+    const r = await run(() => api.patch(`/api/calendar/${id}`, { scheduled_at: iso }), t("일정을 변경했습니다"));
     if (r) load();
   };
-  const onDropDay = (e, day) => {
+  const findItem = (e) => items.find((x) => x.id === Number(e.dataTransfer.getData("text/plain")));
+  const onDropDay = (e, key) => {
     e.preventDefault();
-    const id = Number(e.dataTransfer.getData("text/plain"));
-    const it = items.find((x) => x.id === id);
+    const it = findItem(e);
     if (!it) return;
-    const old = parseUTC(it.calendar_time);
-    const t = new Date(day);
-    t.setHours(old.getHours(), old.getMinutes(), 0, 0);
-    move(id, t);
+    const [hh, mm] = fmtTime(it.calendar_time).split(":").map(Number);
+    move(it.id, keyToISO(key, hh, mm));
   };
   const onDropHour = (e, hour) => {
     e.preventDefault();
-    const id = Number(e.dataTransfer.getData("text/plain"));
-    const it = items.find((x) => x.id === id);
+    const it = findItem(e);
     if (!it) return;
-    const t = new Date(anchor);
-    t.setHours(hour, parseUTC(it.calendar_time).getMinutes(), 0, 0);
-    move(id, t);
+    const mm = Number(fmtTime(it.calendar_time).split(":")[1]);
+    move(it.id, keyToISO(anchor, hour, mm));
   };
   const dz = (key, handler) => ({
     onDragOver: (e) => { e.preventDefault(); setDropKey(key); },
@@ -82,26 +78,25 @@ export default function CalendarPage() {
   return (
     <>
       <div className="topbar">
-        <div><h1>콘텐츠 캘린더</h1><div className="muted small">카드를 끌어서 다른 날짜/시간에 놓으면 게시 일정이 바뀝니다. 게시 완료 콘텐츠는 이동할 수 없습니다.</div></div>
+        <div><h1>{t("콘텐츠 캘린더")}</h1><div className="muted small">{t("모든 시간은 {tz} 기준입니다. 카드를 끌어서 다른 날짜/시간에 놓으면 게시 일정이 바뀝니다. 게시 완료 콘텐츠는 이동할 수 없습니다.", { tz: tzLabel() })}</div></div>
         <div className="row">
-          <button onClick={() => setAnchor(addDays(anchor, -step))}>◀</button>
-          <button onClick={() => setAnchor(startOfDay(new Date()))}>오늘</button>
-          <button onClick={() => setAnchor(addDays(anchor, step))}>▶</button>
+          <button onClick={() => setAnchor(addDaysKey(anchor, -step))}>◀</button>
+          <button onClick={() => setAnchor(todayKey())}>{t("오늘")}</button>
+          <button onClick={() => setAnchor(addDaysKey(anchor, step))}>▶</button>
           <div className="tabs" style={{ margin: 0, border: "none" }}>
-            <button className={view === "day" ? "active" : ""} onClick={() => setView("day")}>일간</button>
-            <button className={view === "week" ? "active" : ""} onClick={() => setView("week")}>주간</button>
+            <button className={view === "day" ? "active" : ""} onClick={() => setView("day")}>{t("일간")}</button>
+            <button className={view === "week" ? "active" : ""} onClick={() => setView("week")}>{t("주간")}</button>
           </div>
         </div>
       </div>
-      <h2>{start.toLocaleDateString()} {view === "week" && `~ ${addDays(start, 6).toLocaleDateString()}`}</h2>
+      <h2>{fmtDayKey(startKey)} {view === "week" && `〜 ${fmtDayKey(addDaysKey(startKey, 6))}`} <span className="small muted">({tzLabel()})</span></h2>
       {view === "week" ? (
         <div className="cal-week">
-          {Array.from({ length: 7 }, (_, i) => addDays(start, i)).map((day) => {
-            const key = day.toDateString();
-            const list = items.filter((it) => sameDay(parseUTC(it.calendar_time), day));
+          {Array.from({ length: 7 }, (_, i) => addDaysKey(startKey, i)).map((key) => {
+            const list = items.filter((it) => dayKey(parseUTC(it.calendar_time)) === key);
             return (
-              <div key={key} className={`cal-day ${sameDay(day, new Date()) ? "today" : ""} ${dropKey === key ? "drop" : ""}`} {...dz(key, (e) => onDropDay(e, day))}>
-                <h4><button className="link" onClick={() => { setAnchor(startOfDay(day)); setView("day"); }}>{day.toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" })}</button> <span className="muted">({list.length})</span></h4>
+              <div key={key} className={`cal-day ${key === todayKey() ? "today" : ""} ${dropKey === key ? "drop" : ""}`} {...dz(key, (e) => onDropDay(e, key))}>
+                <h4><button className="link" onClick={() => { setAnchor(key); setView("day"); }}>{fmtDayKey(key)}</button> <span className="muted">({list.length})</span></h4>
                 {list.map((it) => <Item key={it.id} it={it} onOpen={setOpen} />)}
               </div>
             );
@@ -111,7 +106,7 @@ export default function CalendarPage() {
         <div className="card">
           <div className="cal-hours">
             {Array.from({ length: 24 }, (_, h) => {
-              const list = items.filter((it) => parseUTC(it.calendar_time).getHours() === h);
+              const list = items.filter((it) => hourOf(it.calendar_time) === h);
               return [
                 <div key={`l${h}`} className="cal-hour small muted">{String(h).padStart(2, "0")}:00</div>,
                 <div key={`c${h}`} className={`cal-hour ${dropKey === h ? "drop" : ""}`} {...dz(h, (e) => onDropHour(e, h))}>

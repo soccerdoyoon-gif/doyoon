@@ -10,6 +10,18 @@ CTAS = ["保存して見返してね", "気になったらプロフのリンク�
 BASE_TAGS = ["#おすすめ", "#話題", "#新作", "#購入品", "#ライフスタイル", "#暮らし", "#日常", "#買ってよかった"]
 
 
+def short(text: str, n: int = 16) -> str:
+    """썸네일용 짧은 문구: 단어 중간에서 자르지 않도록 구두점 기준."""
+    text = text.strip()
+    if len(text) <= n:
+        return text
+    for sep in ("。", "、", "！", "？"):
+        i = text.find(sep)
+        if 0 < i < n:
+            return text[: i + (1 if sep != "、" else 0)]
+    return text[:n]
+
+
 def _p(brand: Any) -> str:
     raw = (getattr(brand, "main_products", "") or getattr(brand, "product_description", "") or getattr(brand, "brand_name", "") or "商品")
     return raw.replace("、", ",").split(",")[0].strip()[:20]
@@ -61,14 +73,14 @@ def copy(brand: Any, ideas_: list[dict]) -> dict:
             "instagram": {"content_type": ["post", "reel", "carousel"][i % 3], "hook": hook,
                           "caption": f"[MOCK] {hook}\n\n{p}の「{angle}」をまとめました。\n毎日にちょっとした変化を。",
                           "cta": CTAS[0], "hashtags": tags + [f"#{name.replace(' ', '')}"] if name else tags,
-                          "carousel_slides": [hook, "ポイント①", "ポイント②", "ポイント③", "保存して見返してね"], "thumbnail_text": hook[:12]},
+                          "carousel_slides": [hook, "ポイント①", "ポイント②", "ポイント③", "保存して見返してね"], "thumbnail_text": short(hook)},
             "tiktok": {"hook": hook, "caption": f"[MOCK] {angle}｜{p}", "cta": CTAS[1], "hashtags": ["#おすすめ", "#購入品", "#fyp"][: 3],
-                       "thumbnail_text": hook[:12], "youtube_shorts_title": f"{p}、{angle}"},
+                       "thumbnail_text": short(hook), "youtube_shorts_title": f"{p}、{angle}"},
             "x": {"post_type": ["tweet", "info_tweet", "thread", "ad_tweet"][i % 4], "post": f"[MOCK] {p}、{angle}してみたら地味に良かった。みんなはどうしてる？",
                   "thread": [f"[MOCK] {p}の{angle}まとめ🧵", "① まずはここから", "② 続けるコツ", "③ 気になる人はプロフから"]},
             "facebook": {"post": f"[MOCK] {p}｜{angle}", "hashtags": ["#おすすめ"]},
             "ads": {"headline": f"{p}で毎日をちょっと楽しく", "primary_text": f"[MOCK] {hook} {p}の魅力をチェック。", "description": angle,
-                    "cta": "詳しくはこちら", "image_text": hook[:12]},
+                    "cta": "詳しくはこちら", "image_text": short(hook)},
         })
     return {"packages": out}
 

@@ -10,8 +10,21 @@ services:
       - path: .env
         required: false   # .env 가 없으면 기본값(DRY_RUN=true, Mock 모드)으로 실행
     volumes:
-      - ./data:/app/data   # DB, 업로드 파일, 리포트, 화면에서 저장한 API Key
-      - ./logs:/app/logs   # 로그 파일
+      - ./data:/app/data       # DB, 업로드 파일, 리포트, 화면에서 저장한 API Key
+      - ./logs:/app/logs       # 로그 파일
+      - ./assets:/app/assets   # AI 가 만든 이미지·영상 (assets/generated/...)
+    restart: unless-stopped
+
+  # --- 일본어 음성(TTS) — 선택 ---------------------------------------------------
+  # 무료 일본어 음성 엔진 VOICEVOX. 사용하려면:
+  #   1) docker compose --profile voice up
+  #   2) .env 에 VOICEVOX_URL=http://voicevox:50021
+  # (상업 이용 시 캐릭터별 이용약관과 크레딧 표기를 확인하세요)
+  voicevox:
+    image: voicevox/voicevox_engine:cpu-latest
+    profiles: ["voice"]
+    ports:
+      - "50021:50021"
     restart: unless-stopped
 
 # --- PostgreSQL 로 바꾸고 싶을 때 (선택) ---

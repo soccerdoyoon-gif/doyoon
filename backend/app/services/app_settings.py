@@ -36,7 +36,7 @@ DEFAULTS: dict[str, Any] = {
     # 대시보드 / 리포트 / AI 분석 요약 언어 (ja / ko). 콘텐츠는 항상 일본어 기본
     "ui_language": "ja",
     # 콘텐츠 패키지 생성 시 이미지·영상·광고안 자동 생성 여부
-    "media": {"generate_images": True, "generate_videos": True, "include_ads": True},
+    "media": {"generate_images": True, "generate_videos": True, "include_ads": True, "ai_scene_images": False},
     # 영상 음성 (VOICEVOX). speakers: 성별/톤 → VOICEVOX speaker id (설정 화면에서 변경 가능)
     "voice": {
         "enabled": True,

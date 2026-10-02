@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useState } from "react";
-import { PLATFORMS, SCORE_LABEL, STATUS_LABEL, TYPE_LABEL } from "../util";
+import { t } from "../i18n";
+import { PLATFORMS, SCORE_KEYS, statusLabel, typeLabel } from "../util";
 
 export const ToastContext = createContext(() => {});
 export const useToast = () => useContext(ToastContext);
@@ -41,10 +42,10 @@ export function useAction() {
   return [run, busy];
 }
 
-export const StatusBadge = ({ s }) => <span className={`badge s-${s}`}>{STATUS_LABEL[s] || s}</span>;
+export const StatusBadge = ({ s }) => <span className={`badge s-${s}`}>{statusLabel(s)}</span>;
 export const PlatformBadge = ({ p }) => <span className={`badge p-${p}`}>{PLATFORMS[p] || p}</span>;
-export const TypeBadge = ({ t }) => <span className="badge">{TYPE_LABEL[t] || t}</span>;
-export const MockBadge = ({ show = true, label = "MOCK" }) => (show ? <span className="badge mock" title="테스트용 가짜 데이터">{label}</span> : null);
+export const TypeBadge = ({ type }) => <span className="badge">{typeLabel(type)}</span>;
+export const MockBadge = ({ show = true, label = "MOCK" }) => (show ? <span className="badge mock" title={t("테스트용 가짜 데이터")}>{label}</span> : null);
 
 export function Modal({ title, onClose, children, footer }) {
   return (
@@ -52,7 +53,7 @@ export function Modal({ title, onClose, children, footer }) {
       <div className="modal" role="dialog" aria-label={title}>
         <div className="spread" style={{ marginBottom: 12 }}>
           <h2 style={{ margin: 0 }}>{title}</h2>
-          <button className="sm" onClick={onClose} aria-label="닫기">✕</button>
+          <button className="sm" onClick={onClose} aria-label={t("닫기")}>✕</button>
         </div>
         {children}
         {footer && <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>{footer}</div>}
@@ -64,13 +65,13 @@ export function Modal({ title, onClose, children, footer }) {
 export function Scores({ scores, total, note }) {
   if (!scores || !Object.keys(scores).length) return null;
   return (
-    <div title="AI 내부 우선순위 점수 — 실제 성과를 보장하지 않습니다">
+    <div title={t("AI 내부 우선순위 점수 — 실제 성과를 보장하지 않습니다")}>
       <div className="small">
-        내부 점수 <span className="score">{total ?? "-"}</span>/10 <span className="muted">(성과 보장 아님)</span>
+        {t("내부 점수")} <span className="score">{total ?? "-"}</span>/10 <span className="muted">({t("성과 보장 아님")})</span>
       </div>
       <div className="scorebar">
         {Object.entries(scores).map(([k, v]) => (
-          <span key={k}>{SCORE_LABEL[k] || k} {v}</span>
+          <span key={k}>{t(SCORE_KEYS[k] || k)} {v}</span>
         ))}
       </div>
       {note && <div className="hint">💡 {note}</div>}
@@ -94,7 +95,7 @@ export function ListInput({ value, onChange, placeholder }) {
   return (
     <input
       value={text}
-      placeholder={placeholder || "쉼표(,)로 구분"}
+      placeholder={placeholder || t("쉼표(,)로 구분")}
       onChange={(e) => {
         setText(e.target.value);
         onChange(e.target.value.split(",").map((s) => s.trim()).filter(Boolean));

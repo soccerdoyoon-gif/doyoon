@@ -152,34 +152,69 @@ def parse_generation_request(q: str) -> dict | None:
     return {"idea_count": max(1, min(10, count)), "platforms": platforms or None, "with_video": video or None, "language": lang}
 
 
+def question_lang(q: str) -> str:
+    if re.search(r"[\uAC00-\uD7AF]", q):
+        return "ko"
+    if re.search(r"[\u3040-\u30FF\u4E00-\u9FFF]", q):
+        return "ja"
+    return "en"
+
+
+MOCK_TEXT = {
+    "ja": {
+        "started": "[MOCK AI] コンテンツパッケージの制作を開始しました（実行 #{run}）。\n- 対象: {plats}／アイデア {n}件／言語: {lang}\n"
+                   "- 流れ: トレンド分析 → アイデア → 日本語フック・コピー → 動画台本 → 画像・動画・字幕 → キャプション・ハッシュタグ → Brand Guardian → 承認待ち\n"
+                   "完了したら「承認待ち」画面で確認・承認してください。承認するまで投稿されません。",
+        "all": "設定中のSNSすべて",
+        "head": "[MOCK AI] Claude APIキーがないため、直近7日間のデータの要約のみ表示します。",
+        "plat": "- {p}: 投稿 {posts}件、再生 {views}、いいね {likes}、平均ER {er}",
+        "no_posts": "- 直近7日間に投稿されたコンテンツはありません。",
+        "ads": "- 広告: 広告費 ¥{spend}、CTR {ctr}、CPA ¥{cpa}、ROAS {roas}",
+        "no_ads": "- 広告データはありません。",
+        "tail": "設定 > APIキーでClaude APIキーを入力すると、質問に合わせた分析ができます。",
+    },
+    "ko": {
+        "started": "[MOCK AI] 콘텐츠 패키지 생성을 시작했습니다 (실행 #{run}).\n- 대상: {plats} / 아이디어 {n}개 / 언어: {lang}\n"
+                   "- 순서: 트렌드 분석 → 아이디어 → 일본어 Hook·카피 → 영상 스크립트 → 이미지/영상·자막 → Caption·Hashtag → Brand Guardian → 승인 대기\n"
+                   "완료되면 '승인 대기' 화면에서 확인·승인하세요. 승인 전에는 게시되지 않습니다.",
+        "all": "설정된 SNS 전체",
+        "head": "[MOCK AI] Claude API Key 가 없어 최근 7일 데이터 요약만 보여드립니다.",
+        "plat": "- {p}: 게시 {posts}개, 조회 {views}, 좋아요 {likes}, 평균 ER {er}",
+        "no_posts": "- 최근 7일 게시된 콘텐츠가 없습니다.",
+        "ads": "- 광고: 지출 ¥{spend}, CTR {ctr}, CPA ¥{cpa}, ROAS {roas}",
+        "no_ads": "- 광고 데이터가 없습니다.",
+        "tail": "설정 > API Key 에서 Claude API Key 를 입력하면 질문에 맞춘 분석을 받을 수 있습니다.",
+    },
+}
+
+
 def _mock_answer(db: Session, question: str) -> str:
+    lang = question_lang(question)
+    if lang == "en":
+        lang = get_setting(db, "ui_language") or "ja"
+    M = MOCK_TEXT["ko" if lang == "ko" else "ja"]
     req = parse_generation_request(question)
     if req and not req["platforms"]:  # 플랫폼 지정이 없으면 '총 개수' 로 보고 아이디어 수를 나눔
         n_platforms = max(1, sum(1 for v in get_setting(db, "platforms_enabled").values() if v))
         req["idea_count"] = max(1, -(-req["idea_count"] // n_platforms))
     if req:
         res = run_tool(db, "create_content_package", {**{k: v for k, v in req.items() if v is not None}, "theme": ""})
-        plats = ", ".join(req["platforms"] or ["설정된 SNS 전체"])
-        return (
-            f"[MOCK AI] 콘텐츠 패키지 생성을 시작했습니다 (실행 #{res['run_id']}).\n"
-            f"- 대상: {plats} / 아이디어 {req['idea_count']}개 / 언어: {req['language']}\n"
-            "- 순서: 트렌드 분석 → 아이디어 → 일본어 Hook·카피 → 영상 스크립트 → 이미지/영상·자막 → Caption·Hashtag → Brand Guardian → 승인 대기\n"
-            "완료되면 '승인 대기' 화면에서 확인·승인하세요. 승인 전에는 게시되지 않습니다."
-        )
+        return M["started"].format(run=res["run_id"], plats=", ".join(req["platforms"] or [M["all"]]), n=req["idea_count"], lang=req["language"])
     perf = run_tool(db, "get_content_performance", {"days": 7, "platform": "all"})
     ads = run_tool(db, "get_ads_performance", {"days": 7})
-    lines = ["[MOCK AI] Claude API Key 가 없어 최근 7일 데이터 요약만 보여드립니다.", ""]
+    lines = [M["head"], ""]
     if perf["by_platform"]:
-        for p, s in perf["by_platform"].items():
-            lines.append(f"- {p}: 게시 {s['posts']}개, 조회 {_n(s['views'])}, 좋아요 {_n(s['likes'])}, 평균 ER {_n(s['avg_engagement_rate'], '%')}" + (" (mock)" if s["mock_data"] else ""))
+        for p, s_ in perf["by_platform"].items():
+            lines.append(M["plat"].format(p=p, posts=s_["posts"], views=_n(s_["views"]), likes=_n(s_["likes"]), er=_n(s_["avg_engagement_rate"], "%"))
+                         + (" (mock)" if s_["mock_data"] else ""))
     else:
-        lines.append("- 최근 7일 게시된 콘텐츠가 없습니다.")
+        lines.append(M["no_posts"])
     t = ads["totals"]
     if t["spend"] is not None:
-        lines.append(f"- 광고: 지출 {t['spend']:,.0f}, CTR {_n(t['ctr'], '%')}, CPA {_n(t['cpa'])}, ROAS {_n(t['roas'])}" + (" (mock)" if t["mock_data"] else ""))
+        lines.append(M["ads"].format(spend=f"{t['spend']:,.0f}", ctr=_n(t["ctr"], "%"), cpa=_n(t["cpa"]), roas=_n(t["roas"])) + (" (mock)" if t["mock_data"] else ""))
     else:
-        lines.append("- 광고 데이터가 없습니다.")
-    lines += ["", "설정 > API Key 에서 Claude API Key 를 입력하면 질문에 맞춘 분석을 받을 수 있습니다."]
+        lines.append(M["no_ads"])
+    lines += ["", M["tail"]]
     return "\n".join(lines)
 
 

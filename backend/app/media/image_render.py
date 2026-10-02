@@ -173,7 +173,18 @@ def render_subtitle_frame(background: Image.Image, subtitle: str, *, centered: b
     w, h = img.size
     draw = ImageDraw.Draw(img)
     start = int(w * (0.1 if centered else 0.075))
-    f, lines, line_h = _fit_text(draw, subtitle, int(w * 0.84), int(h * 0.3), start=start, minimum=40, max_lines=3 if centered else 2)
+    box_w = int(w * 0.84)
+    # 짧은 자막은 가능한 한 한 줄에 (단어 중간 줄바꿈 방지), 안 되면 줄바꿈
+    f, lines, line_h = None, [], 0
+    size = start
+    while size >= int(w * 0.06):
+        cand = font(size)
+        if cand.getlength(subtitle) <= box_w:
+            f, lines, line_h = cand, [subtitle], int(size * 1.35)
+            break
+        size -= 4
+    if f is None:
+        f, lines, line_h = _fit_text(draw, subtitle, box_w, int(h * 0.3), start=start, minimum=40, max_lines=3 if centered else 2)
     y = (h - line_h * len(lines)) // 2 if centered else int(h * 0.70)
     for line in lines:
         tw = f.getlength(line)

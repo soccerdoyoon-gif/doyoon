@@ -12,14 +12,23 @@ from app.services.app_settings import DEFAULTS, get_all_settings, set_setting
 from app.services.events import log_event
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-EDITABLE = {"platforms_enabled", "auto_approve", "generation", "posting_times", "ads_enabled", "reports"}
+EDITABLE = {"platforms_enabled", "auto_approve", "generation", "posting_times", "ads_enabled", "reports", "ui_language", "media", "voice"}
 
 
 @router.get("")
 def get_all(db: Session = Depends(get_db)):
     s = get_settings()
     secrets = {k: {"configured": bool(getattr(s, k.lower(), "")), "masked": mask_value(getattr(s, k.lower(), ""))} for k in sorted(ALLOWED_SECRET_KEYS)}
-    return {"settings": get_all_settings(db), "secrets": secrets, "dry_run": s.dry_run, "public_base_url": s.public_base_url}
+    from app.media.fonts import find_font
+    from app.media.video import ffmpeg_available
+
+    creative = {
+        "image_provider": s.image_provider, "video_provider": s.video_provider, "ffmpeg": ffmpeg_available(),
+        "japanese_font": find_font() or "", "voicevox": bool(s.voicevox_url), "openai_images": bool(s.openai_api_key),
+    }
+    return {"settings": get_all_settings(db), "secrets": secrets, "dry_run": s.dry_run, "public_base_url": s.public_base_url,
+            "defaults": {"country": s.default_country, "language": s.default_language, "currency": s.default_currency, "timezone": s.timezone},
+            "creative": creative}
 
 
 @router.put("/{key}")
@@ -28,6 +37,8 @@ def put(key: str, body: SettingValue, db: Session = Depends(get_db)):
         raise HTTPException(400, f"이 화면에서 바꿀 수 없는 설정입니다: {key}")
     if key in DEFAULTS and isinstance(DEFAULTS[key], dict) and not isinstance(body.value, dict):
         raise HTTPException(400, "객체 형태여야 합니다.")
+    if key == "ui_language" and body.value not in ("ja", "ko"):
+        raise HTTPException(400, "ui_language 는 ja 또는 ko")
     value = set_setting(db, key, body.value)
     if key == "generation":
         from app.scheduler.runner import reschedule_generation

@@ -9,5 +9,6 @@ anthropic>=1.0,<2.0
 httpx>=0.27
 python-multipart>=0.0.9
 Pillow>=10.0
+imageio-ffmpeg>=0.5  # ffmpeg 실행 파일 포함 (영상 생성용, 별도 설치 불필요)
 # PostgreSQL 로 바꿀 때 아래 줄의 주석을 해제하세요
 # psycopg[binary]>=3.1

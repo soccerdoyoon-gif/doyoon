@@ -13,7 +13,7 @@ from app.api.schemas import AdActionIn, CreativeGenIn, NoteIn, SettingValue
 from app.api.serializers import to_dict
 from app.connectors.base import ConnectorError
 from app.core.database import get_db
-from app.models import AdCreativeDraft, AdEntity, PendingAction
+from app.models import AdCreativeDraft, AdEntity, GeneratedAsset, PendingAction
 from app.services import ads_service
 from app.services.app_settings import get_setting, set_setting
 from app.services.events import log_event
@@ -51,9 +51,17 @@ def analyze(days: int = 7, db: Session = Depends(get_db)):
     return to_dict(analyze_ads(db, days))
 
 
+def _creative(db: Session, c: AdCreativeDraft) -> dict:
+    d = to_dict(c)
+    for key, aid in (("image_url", c.image_asset_id), ("video_url", c.video_asset_id)):
+        a = db.get(GeneratedAsset, aid) if aid else None
+        d[key] = f"/generated/{a.path}" if a else None
+    return d
+
+
 @router.get("/creatives")
 def list_creatives(db: Session = Depends(get_db)):
-    return [to_dict(c) for c in db.scalars(select(AdCreativeDraft).order_by(AdCreativeDraft.id.desc()).limit(100)).all()]
+    return [_creative(db, c) for c in db.scalars(select(AdCreativeDraft).order_by(AdCreativeDraft.id.desc()).limit(100)).all()]
 
 
 @router.post("/creatives/generate")

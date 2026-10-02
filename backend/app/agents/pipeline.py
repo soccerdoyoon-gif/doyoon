@@ -15,6 +15,7 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.agents import posting_times, rules, team, trend
 from app.agents.rules import normalize_hashtags
@@ -50,7 +51,8 @@ class Run:
     def step(self, name: str):
         entry = {"name": name, "status": "running", "started": utcnow().isoformat() + "Z", "note": ""}
         if self.run is not None:
-            self.run.steps = [*self.run.steps, entry]
+            self.run.steps = [*self.run.steps, dict(entry)]
+            flag_modified(self.run, "steps")
             self.db.commit()
         try:
             yield entry
@@ -62,7 +64,9 @@ class Run:
         finally:
             entry["finished"] = utcnow().isoformat() + "Z"
             if self.run is not None:
-                self.run.steps = [*self.run.steps[:-1], entry]
+                # JSON 컬럼은 내부 변경을 감지하지 못하므로 새 dict + flag_modified 로 저장
+                self.run.steps = [*self.run.steps[:-1], dict(entry)]
+                flag_modified(self.run, "steps")
                 self.db.commit()
 
 

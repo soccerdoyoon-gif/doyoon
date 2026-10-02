@@ -32,8 +32,21 @@ class VideoError(RuntimeError):
     pass
 
 
+def ffmpeg_exe() -> str | None:
+    """시스템 ffmpeg → 없으면 pip 패키지(imageio-ffmpeg)에 포함된 ffmpeg."""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def ffmpeg_available() -> bool:
-    return shutil.which("ffmpeg") is not None
+    return ffmpeg_exe() is not None
 
 
 def split_subtitle(text: str, max_chars: int = SUB_MAX_CHARS) -> list[str]:
@@ -77,6 +90,8 @@ def _ts(sec: float) -> str:
 
 
 def _run(cmd: list[str]) -> None:
+    if cmd and cmd[0] == "ffmpeg":
+        cmd = [ffmpeg_exe() or "ffmpeg", *cmd[1:]]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if proc.returncode != 0:
         raise VideoError(f"ffmpeg 실패: {proc.stderr[-400:]}")

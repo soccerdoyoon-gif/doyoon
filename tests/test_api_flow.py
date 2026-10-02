@@ -106,9 +106,11 @@ def test_full_loop(api):
     assert len(api.get("/api/reports").json()) == 2
 
     chat = api.post("/api/chat", json={"session_id": "s1", "message": "이번 주 Instagram 성과 어때?"}).json()
-    assert chat["mode"] == "mock_ai" and "[MOCK AI]" in chat["answer"] and "게시 1개" in chat["answer"]
+    assert chat["mode"] == "mock_ai" and "[MOCK AI]" in chat["answer"] and "게시 1개" in chat["answer"]  # 한국어 질문 → 한국어 답
+    ja = api.post("/api/chat", json={"session_id": "s1", "message": "今週のInstagramの成果はどう？"}).json()
+    assert "投稿 1件" in ja["answer"]
     assert "None" not in chat["answer"]
-    assert len(api.get("/api/chat/s1").json()) == 2
+    assert len(api.get("/api/chat/s1").json()) == 4
 
     logs = api.get("/api/logs").json()
     cats = {l["category"] for l in logs}

@@ -17,7 +17,9 @@ from app.media.video import split_subtitle
 from app.models import AdCreativeDraft, ContentIdea, ContentItem, GeneratedAsset, Insight, PipelineRun, PostMetrics
 
 JST = ZoneInfo("Asia/Tokyo")
-needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg 없음")
+from app.media.video import ffmpeg_available
+
+needs_ffmpeg = pytest.mark.skipif(not ffmpeg_available(), reason="ffmpeg 없음")
 
 
 def test_japan_defaults(db):
@@ -237,6 +239,9 @@ def test_manager_command_tiktok_videos_mock(db, brand, monkeypatch):
     assert "[MOCK AI]" in res["answer"] and "TikTok".lower() in res["answer"].lower()
     run = db.query(PipelineRun).one()
     assert run.status == "DONE", run.error
+    db.expire_all()
+    run = db.query(PipelineRun).one()
+    assert all(s["status"] == "done" and s.get("finished") for s in run.steps)  # 마지막 단계까지 저장
     assert [s["name"] for s in run.steps] == ["Trend Research", "Content Strategist", "Copywriter / Hashtag", "Short-form Script",
                                                "Creative Director", "Brand Guardian", "Image / Video Generation"]
     items = db.query(ContentItem).all()
@@ -318,3 +323,17 @@ def test_language_override_only_when_requested(db, brand, fake_ai):
     assert [i.language for i in items] == ["ja", "ko"]
     ko_calls = [c for c in fake_ai.calls if "韓国語" in c.get("system", "")]
     assert ko_calls  # ko 는 명시적으로 요청했을 때만
+
+
+@needs_ffmpeg
+def test_video_uses_bundled_ffmpeg_when_system_has_none(db, brand, monkeypatch):
+    pytest.importorskip("imageio_ffmpeg")
+    import app.media.video as video
+
+    monkeypatch.setattr(video.shutil, "which", lambda name: None)  # 시스템 ffmpeg 없음
+    item = ContentItem(platform="tiktok", content_type="short_video", hook="3秒だけ見て。",
+                       scenes=[{"scene_id": 1, "duration": 1, "voiceover": "", "subtitle": "3秒だけ見て。"}])
+    db.add(item)
+    db.flush()
+    assets = video.render_video(db, item, brand_name="Sakura Tea", voice_cfg={"enabled": False})
+    assert storage.abs_path([a for a in assets if a.kind == "video"][0].path).stat().st_size > 1000

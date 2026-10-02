@@ -111,8 +111,8 @@ SYSTEM = """당신은 이 브랜드의 AI Marketing Manager 입니다. 사용자
 - 사용자가 쓴 언어로, 핵심부터 간결하게 답하세요. 표나 목록을 적절히 사용하세요."""
 
 
-def _n(v) -> str:
-    return "N/A" if v is None else (f"{v:,}" if isinstance(v, int) else str(v))
+def _n(v, suffix: str = "") -> str:
+    return "N/A" if v is None else (f"{v:,}" if isinstance(v, int) else str(v)) + suffix
 
 
 def _mock_answer(db: Session, question: str) -> str:
@@ -121,12 +121,12 @@ def _mock_answer(db: Session, question: str) -> str:
     lines = ["[MOCK AI] Claude API Key 가 없어 최근 7일 데이터 요약만 보여드립니다.", ""]
     if perf["by_platform"]:
         for p, s in perf["by_platform"].items():
-            lines.append(f"- {p}: 게시 {s['posts']}개, 조회 {_n(s['views'])}, 좋아요 {_n(s['likes'])}, 평균 ER {_n(s['avg_engagement_rate'])}%" + (" (mock)" if s["mock_data"] else ""))
+            lines.append(f"- {p}: 게시 {s['posts']}개, 조회 {_n(s['views'])}, 좋아요 {_n(s['likes'])}, 평균 ER {_n(s['avg_engagement_rate'], '%')}" + (" (mock)" if s["mock_data"] else ""))
     else:
         lines.append("- 최근 7일 게시된 콘텐츠가 없습니다.")
     t = ads["totals"]
     if t["spend"] is not None:
-        lines.append(f"- 광고: 지출 {t['spend']:,.0f}, CTR {_n(t['ctr'])}%, CPA {_n(t['cpa'])}, ROAS {_n(t['roas'])}" + (" (mock)" if t["mock_data"] else ""))
+        lines.append(f"- 광고: 지출 {t['spend']:,.0f}, CTR {_n(t['ctr'], '%')}, CPA {_n(t['cpa'])}, ROAS {_n(t['roas'])}" + (" (mock)" if t["mock_data"] else ""))
     else:
         lines.append("- 광고 데이터가 없습니다.")
     lines += ["", "설정 > API Key 에서 Claude API Key 를 입력하면 질문에 맞춘 분석을 받을 수 있습니다."]

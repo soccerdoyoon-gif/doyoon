@@ -1,0 +1,27 @@
+# 실행:  docker compose up        (처음 한 번은 빌드 때문에 몇 분 걸립니다)
+# 종료:  Ctrl + C  또는  docker compose down
+# 접속:  http://localhost:8000
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false   # .env 가 없으면 기본값(DRY_RUN=true, Mock 모드)으로 실행
+    volumes:
+      - ./data:/app/data   # DB, 업로드 파일, 리포트, 화면에서 저장한 API Key
+      - ./logs:/app/logs   # 로그 파일
+    restart: unless-stopped
+
+# --- PostgreSQL 로 바꾸고 싶을 때 (선택) ---
+# 1) 아래 주석을 해제하고  2) .env 에 DATABASE_URL=postgresql+psycopg://sns:sns@db:5432/sns
+# 3) backend/requirements.txt 의 psycopg 줄 주석 해제 후  docker compose up --build
+#  db:
+#    image: postgres:16
+#    environment:
+#      POSTGRES_USER: sns
+#      POSTGRES_PASSWORD: sns
+#      POSTGRES_DB: sns
+#    volumes:
+#      - ./data/postgres:/var/lib/postgresql/data

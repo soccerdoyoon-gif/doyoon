@@ -6,6 +6,7 @@ Claude 가 아래 도구(tool)로 DB 를 조회합니다. 데이터가 없으면
 from __future__ import annotations
 
 import json
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -21,6 +22,7 @@ from app.services.app_settings import get_setting
 from app.services.events import log_event
 
 PLATFORM_ENUM = ["all", "instagram", "facebook", "tiktok", "x"]
+_BACKGROUND = True  # 테스트에서는 False (동기 실행)
 
 
 def _tool(name: str, description: str, props: dict) -> dict:
@@ -44,9 +46,16 @@ TOOLS = [
     _tool("get_latest_insights", "가장 최근 AI 분석 결과(content/ads/competitor/strategy)를 조회합니다.",
           {"kind": {"type": "string", "enum": ["content", "ads", "competitor", "strategy"]}}),
     _tool("get_settings_and_budget_guard", "브랜드 프로필, Budget Guard 설정, 대기 중인 광고 작업, A/B 테스트 목록을 조회합니다.", {}),
-    _tool("create_content_drafts", "새 콘텐츠 후보를 생성해 '승인 대기' 상태로 저장합니다 (게시하지 않음). 사용자가 콘텐츠 생성을 명시적으로 요청한 경우에만 사용하세요.",
-          {"count": {"type": "integer", "description": "5-14"}, "theme": {"type": "string"},
-           "platforms": {"type": "array", "items": {"type": "string", "enum": ["instagram", "facebook", "tiktok", "x"]}}}),
+    _tool("create_content_package",
+          "일본 시장용 콘텐츠 패키지 생성 파이프라인을 백그라운드로 시작합니다 (트렌드 분석 → 아이디어 → 일본어 Hook/카피 → 영상 스크립트 → "
+          "이미지/영상 → 자막 → Caption/Hashtag → Brand Guardian → 승인 대기). 게시는 하지 않습니다. "
+          "사용자가 콘텐츠/영상/게시물 생성을 요청한 경우에만 사용하세요. 예: '오늘 일본 TikTok용 영상 3개' → platforms=['tiktok'], idea_count=3, with_video=true.",
+          {"idea_count": {"type": "integer", "description": "아이디어 개수 1-10. 아이디어 1개마다 지정한 플랫폼별로 1개씩 생성됨. 플랫폼 지정 없이 '콘텐츠 7개'라고 하면 7 ÷ 사용 중인 플랫폼 수(올림)"},
+           "platforms": {"type": "array", "items": {"type": "string", "enum": ["instagram", "facebook", "tiktok", "x"]}},
+           "theme": {"type": "string", "description": "주제/요청. 없으면 빈 문자열"},
+           "with_video": {"type": "boolean"},
+           "language": {"type": "string", "enum": ["ja", "ko", "en"], "description": "콘텐츠 언어. 사용자가 명시적으로 요청하지 않으면 ja"}}),
+    _tool("get_trends", "가장 최근 일본 시장 트렌드 조사 결과를 조회합니다 (TikTok/Reels/X/Shorts).", {}),
 ]
 
 
@@ -94,15 +103,23 @@ def run_tool(db: Session, name: str, args: dict) -> Any:
         return {"brand": brand_context(brand), "budget_guard": get_setting(db, "budget_guard"),
                 "pending_ad_actions": [{"id": p.id, "type": p.action_type, "target": p.target_name or p.target_external_id, "payload": p.payload, "reason": p.reason} for p in pending],
                 "ab_tests": [{"id": t.id, "name": t.name, "status": t.status, "conclusion": t.conclusion} for t in tests]}
-    if name == "create_content_drafts":
-        from app.ai.content_generator import generate_content
+    if name == "create_content_package":
+        from app.agents.pipeline import start_run
 
-        res = generate_content(db, count=_clamp(args.get("count"), 5, 14, 7), platforms=args.get("platforms") or None, theme=args.get("theme", ""))
-        return {**res, "note": "승인 대기(READY_FOR_REVIEW) 상태로 저장됨. 콘텐츠 메뉴에서 검토/승인하세요."}
+        params = {"idea_count": _clamp(args.get("idea_count"), 1, 10, 3), "platforms": args.get("platforms") or None,
+                  "theme": args.get("theme", ""), "with_video": bool(args.get("with_video", True)), "language": args.get("language") or "ja"}
+        run = start_run(db, {k: v for k, v in params.items() if v not in (None, "")}, background=_BACKGROUND)
+        return {"run_id": run.id, "status": run.status, "request": params,
+                "note": "백그라운드에서 생성 중. 완료되면 '승인 대기' 화면에 표시됩니다. 사용자가 승인하기 전에는 게시되지 않습니다."}
+    if name == "get_trends":
+        ins = db.scalars(select(Insight).where(Insight.kind == "trend").order_by(Insight.id.desc()).limit(1)).first()
+        return {"found": False} if ins is None else {"found": True, "created_at": ins.created_at, "source": ins.source, "data": ins.data}
     return {"error": f"unknown tool {name}"}
 
 
-SYSTEM = """당신은 이 브랜드의 AI Marketing Manager 입니다. 사용자의 질문에 답하기 전에 반드시 도구로 실제 DB 데이터를 조회하세요.
+SYSTEM = """당신은 일본 시장을 담당하는 이 브랜드의 AI Marketing Manager 입니다. 기본 시장은 일본, 통화는 엔(¥), 시간은 JST 입니다.
+콘텐츠(캡션·카피·스크립트 등)는 기본적으로 일본어로 만들고, 한국어/영어는 사용자가 명시적으로 요청할 때만 사용하세요.
+답변(설명)은 사용자가 질문한 언어로 하세요. 금액은 ¥ 로 표시하세요. 사용자의 질문에 답하기 전에 반드시 도구로 실제 DB 데이터를 조회하세요.
 규칙:
 - 도구 결과에 없는 수치/사실을 만들어내지 마세요. 데이터가 없으면 "데이터가 없습니다"라고 말하고 무엇이 필요한지 안내하세요.
 - data_source 가 mock 이거나 source 가 mock 인 데이터는 테스트용 가짜 데이터라는 점을 답변에 밝히세요.
@@ -115,7 +132,40 @@ def _n(v, suffix: str = "") -> str:
     return "N/A" if v is None else (f"{v:,}" if isinstance(v, int) else str(v)) + suffix
 
 
+GEN_WORDS = ("만들어", "생성", "作って", "作成", "create", "make")
+PLATFORM_WORDS = {"tiktok": ("tiktok", "틱톡", "ティックトック"), "instagram": ("instagram", "인스타", "インスタ", "reels", "릴스"),
+                  "x": (" x ", "x용", "트위터", "twitter", "ツイッター", "xで"), "facebook": ("facebook", "페이스북")}
+
+
+def parse_generation_request(q: str) -> dict | None:
+    """Mock 모드용 간단한 명령 해석: '오늘 일본 TikTok용 영상 3개 만들어줘' 등."""
+    low = f" {q.lower()} "
+    if not any(w in low for w in GEN_WORDS):
+        return None
+    m = re.search(r"(\d+)\s*(개|個|本|つ|件)?", q)
+    count = int(m.group(1)) if m else 3
+    platforms = [p for p, ws in PLATFORM_WORDS.items() if any(w in low for w in ws)]
+    video = any(w in low for w in ("영상", "動画", "video", "숏폼", "ショート", "릴스", "reels"))
+    if video and not platforms:
+        platforms = ["tiktok"]
+    lang = "ko" if "한국어" in q else "en" if ("영어" in q or "english" in low) else "ja"
+    return {"idea_count": max(1, min(10, count)), "platforms": platforms or None, "with_video": video or None, "language": lang}
+
+
 def _mock_answer(db: Session, question: str) -> str:
+    req = parse_generation_request(question)
+    if req and not req["platforms"]:  # 플랫폼 지정이 없으면 '총 개수' 로 보고 아이디어 수를 나눔
+        n_platforms = max(1, sum(1 for v in get_setting(db, "platforms_enabled").values() if v))
+        req["idea_count"] = max(1, -(-req["idea_count"] // n_platforms))
+    if req:
+        res = run_tool(db, "create_content_package", {**{k: v for k, v in req.items() if v is not None}, "theme": ""})
+        plats = ", ".join(req["platforms"] or ["설정된 SNS 전체"])
+        return (
+            f"[MOCK AI] 콘텐츠 패키지 생성을 시작했습니다 (실행 #{res['run_id']}).\n"
+            f"- 대상: {plats} / 아이디어 {req['idea_count']}개 / 언어: {req['language']}\n"
+            "- 순서: 트렌드 분석 → 아이디어 → 일본어 Hook·카피 → 영상 스크립트 → 이미지/영상·자막 → Caption·Hashtag → Brand Guardian → 승인 대기\n"
+            "완료되면 '승인 대기' 화면에서 확인·승인하세요. 승인 전에는 게시되지 않습니다."
+        )
     perf = run_tool(db, "get_content_performance", {"days": 7, "platform": "all"})
     ads = run_tool(db, "get_ads_performance", {"days": 7})
     lines = ["[MOCK AI] Claude API Key 가 없어 최근 7일 데이터 요약만 보여드립니다.", ""]

@@ -29,8 +29,15 @@ def to_dict(obj: Any, exclude: set[str] | None = None) -> dict:
     return out
 
 
+def asset_dict(a) -> dict:
+    d = to_dict(a)
+    d["url"] = f"/generated/{a.path}"
+    return d
+
+
 def content_dict(item, with_children: bool = False) -> dict:
     d = to_dict(item)
+    d["assets"] = [asset_dict(a) for a in item.assets]
     last = item.metrics[-1] if item.metrics else None
     d["latest_metrics"] = to_dict(last) if last else None
     if with_children:

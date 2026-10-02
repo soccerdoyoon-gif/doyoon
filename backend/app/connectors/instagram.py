@@ -54,7 +54,37 @@ class InstagramConnector(BaseConnector):
         save_secrets({"INSTAGRAM_ACCESS_TOKEN": data["access_token"]})
         return True
 
+    def _wait_ready(self, container_id: str) -> None:
+        for _ in range(self.max_polls):
+            status = self._request(
+                "GET", f"{self.base}/{container_id}", "컨테이너 상태 확인", params={**self._auth(), "fields": "status_code"}
+            )
+            code = status.get("status_code")
+            if code in (None, "FINISHED"):
+                return
+            if code in ("ERROR", "EXPIRED"):
+                raise ConnectorError(f"Instagram 미디어 처리 실패: {code}", retryable=False, response=status)
+            time.sleep(self.poll_interval_seconds)
+        raise ConnectorError("Instagram 미디어 처리 시간 초과", retryable=True)
+
+    def _publish_carousel(self, req: PublishRequest) -> str:
+        ig = self.settings.instagram_user_id
+        children = []
+        for url in req.media_urls[:10]:
+            child = self._request("POST", f"{self.base}/{ig}/media", "캐러셀 이미지 등록",
+                                  params={**self._auth(), "image_url": url, "is_carousel_item": "true"})
+            children.append(child["id"])
+        for c in children:
+            self._wait_ready(c)
+        container = self._request("POST", f"{self.base}/{ig}/media", "캐러셀 생성", params={
+            **self._auth(), "media_type": "CAROUSEL", "children": ",".join(children), "caption": req.full_caption})
+        return container["id"]
+
     def _publish_live(self, req: PublishRequest) -> PublishResult:
+        if len(req.media_urls) >= 2:
+            creation_id = self._publish_carousel(req)
+            self._wait_ready(creation_id)
+            return self._finish(creation_id)
         if not req.media_url:
             raise ConnectorError(
                 "Instagram 게시에는 공개 URL 의 이미지/영상이 필요합니다 (media_url 또는 PUBLIC_MEDIA_BASE_URL).",
@@ -71,19 +101,11 @@ class InstagramConnector(BaseConnector):
         if not creation_id:
             raise ConnectorError("Instagram 컨테이너 ID 를 받지 못했습니다.", response=container)
 
-        for _ in range(self.max_polls):
-            status = self._request(
-                "GET", f"{self.base}/{creation_id}", "컨테이너 상태 확인", params={**self._auth(), "fields": "status_code"}
-            )
-            code = status.get("status_code")
-            if code in (None, "FINISHED"):
-                break
-            if code in ("ERROR", "EXPIRED"):
-                raise ConnectorError(f"Instagram 미디어 처리 실패: {code}", retryable=False, response=status)
-            time.sleep(self.poll_interval_seconds)
-        else:
-            raise ConnectorError("Instagram 미디어 처리 시간 초과", retryable=True)
+        self._wait_ready(creation_id)
+        return self._finish(creation_id)
 
+    def _finish(self, creation_id: str) -> PublishResult:
+        ig = self.settings.instagram_user_id
         published = self._request(
             "POST", f"{self.base}/{ig}/media_publish", "게시", params={**self._auth(), "creation_id": creation_id}
         )

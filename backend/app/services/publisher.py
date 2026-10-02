@@ -22,19 +22,46 @@ from app.models.enums import ContentStatus as S
 from app.services.events import log_event
 
 
+def _public(rel_url: str) -> str:
+    base = get_settings().public_media_base_url.rstrip("/")
+    return f"{base}{rel_url}" if base else ""
+
+
 def media_url_for(item: ContentItem) -> str:
     if item.media_url:
         return item.media_url
-    base = get_settings().public_media_base_url.rstrip("/")
-    if item.media_path and base:
-        return f"{base}/media/{item.media_path.split('/')[-1]}"
+    if item.media_path:
+        return _public(f"/media/{item.media_path.split('/')[-1]}")
     return ""
 
 
+def pick_assets(item: ContentItem) -> list:
+    """플랫폼에 맞는 생성 미디어 선택: 영상형 → video, 캐러셀 → 이미지 전체, 피드 → feed 이미지."""
+    assets = list(item.assets or [])
+    if item.content_type in ("reel", "short_video") or item.platform == "tiktok":
+        return [a for a in assets if a.kind == "video"][:1]
+    if item.content_type == "carousel":
+        return sorted([a for a in assets if a.kind == "image" and a.purpose == "carousel"], key=lambda a: a.order)
+    if item.platform in ("instagram", "facebook"):
+        return [a for a in assets if a.kind == "image" and a.purpose == "feed"][:1]
+    return []  # X: 텍스트 게시
+
+
 def build_request(item: ContentItem) -> PublishRequest:
+    from app.media import storage
+
     media_path = ""
+    media_url = media_url_for(item)
+    media_urls: list[str] = []
     if item.media_path:
         media_path = str(get_settings().data_dir / "media" / item.media_path.split("/")[-1])
+    elif not item.media_url:
+        chosen = pick_assets(item)
+        if chosen:
+            media_path = str(storage.abs_path(chosen[0].path))
+            media_url = _public(f"/generated/{chosen[0].path}")
+            if len(chosen) > 1:
+                media_urls = [_public(f"/generated/{a.path}") for a in chosen]
     return PublishRequest(
         content_id=item.id,
         platform=item.platform,
@@ -43,8 +70,9 @@ def build_request(item: ContentItem) -> PublishRequest:
         caption=item.caption,
         hashtags=list(item.hashtags or []),
         thread=list(item.thread or []),
-        media_url=media_url_for(item),
+        media_url=media_url,
         media_path=media_path,
+        media_urls=[u for u in media_urls if u],
     )
 
 

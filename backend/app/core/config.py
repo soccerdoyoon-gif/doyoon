@@ -9,7 +9,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/app/core/config.py -> project root is 3 levels up from backend/
@@ -31,7 +31,11 @@ class Settings(BaseSettings):
     # --- General -----------------------------------------------------------
     app_name: str = "SNS AI Marketing"
     dry_run: bool = True  # 초기에는 반드시 true. 실제 게시/광고 수정/결제 없음
-    timezone: str = "Asia/Tokyo"
+    # --- 기본 시장: 일본 (코드 전체에서 이 값을 사용) ---------------------
+    default_country: str = "JP"
+    default_language: str = "ja"  # 콘텐츠 기본 언어. ko/en 은 요청할 때만 사용
+    default_currency: str = "JPY"
+    default_timezone: str = Field(default="Asia/Tokyo", validation_alias=AliasChoices("DEFAULT_TIMEZONE", "TIMEZONE"))
     data_dir: Path = DEFAULT_DATA_DIR
     log_dir: Path = DEFAULT_LOG_DIR
     database_url: str = ""  # 비어 있으면 data/app.db (SQLite)
@@ -85,6 +89,23 @@ class Settings(BaseSettings):
     slack_webhook_url: str = ""
     discord_webhook_url: str = ""
 
+    # --- Creative (이미지 / 영상 / 음성) -------------------------------------
+    assets_dir: Path = PROJECT_ROOT / "assets"
+    # template: 서버에서 직접 디자인 이미지를 그림 (무료)
+    # openai  : OpenAI 이미지 API 로 배경 비주얼 생성 + 일본어 문구는 서버에서 합성 (유료)
+    image_provider: str = "template"
+    openai_api_key: str = ""
+    openai_image_model: str = "gpt-image-1"
+    # slideshow: 장면 이미지 + 일본어 자막 + 음성으로 9:16 초안 영상(mp4)을 서버에서 생성 (ffmpeg 필요)
+    # none     : 영상 파일 없이 장면(Scene) 정보와 영상 생성 프롬프트만 생성
+    video_provider: str = "slideshow"
+    video_fps: int = 30  # Instagram Reels 는 23~60fps 필요
+    video_preset: str = "veryfast"  # ffmpeg x264 preset (빠를수록 파일이 커짐)
+    voicevox_url: str = ""  # 예: http://localhost:50021 (무료 일본어 TTS 엔진)
+    font_path: str = ""  # 일본어 폰트 파일 경로 (비우면 자동 탐색)
+    trend_web_search: bool = True
+    pipeline_background: bool = True  # 콘텐츠 생성 파이프라인을 백그라운드로 실행 (테스트에서는 false)  # 트렌드 조사에 Claude 웹 검색 사용 (검색당 추가 요금)
+
     retry_delays_minutes: list[int] = Field(default_factory=lambda: [1, 5, 15])
 
     @property
@@ -97,6 +118,10 @@ class Settings(BaseSettings):
     @property
     def secrets_file(self) -> Path:
         return self.data_dir / SECRETS_FILE_NAME
+
+    @property
+    def timezone(self) -> str:
+        return self.default_timezone
 
     @property
     def ai_enabled(self) -> bool:

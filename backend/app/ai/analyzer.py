@@ -27,10 +27,19 @@ from app.core.timeutil import utcnow
 from app.models import AdCreativeDraft, ABTest, BrandProfile, Competitor, Insight
 from app.services.events import log_event
 
-ANALYST_SYSTEM = (
-    "당신은 데이터 기반 SNS/퍼포먼스 마케팅 분석가입니다. 주어진 데이터만 근거로 분석하고, "
-    "표본이 작거나 데이터가 없으면 그렇다고 분명히 말하세요. 성급한 결론을 내리지 마세요.\n" + COMMON_RULES
+ANALYST_BASE = (
+    "당신은 일본 시장을 담당하는 데이터 기반 SNS/퍼포먼스 마케팅 분석가입니다. 데이터는 일본 계정·일본 캠페인 중심이며, "
+    "시간은 JST, 금액은 엔(¥, JPY) 입니다. 주어진 데이터만 근거로 분석하고, 표본이 작거나 데이터가 없으면 그렇다고 분명히 말하세요. "
+    "성급한 결론을 내리지 마세요.\n" + COMMON_RULES
 )
+ANALYST_SYSTEM = ANALYST_BASE
+
+
+def _system(db: Session) -> str:
+    from app.services.app_settings import ui_language
+
+    lang = "日本語" if ui_language(db) == "ja" else "한국어"
+    return ANALYST_BASE + f"\n분석·요약 문장은 {lang}로 작성하세요. 콘텐츠 예시나 카피는 일본어로 쓰세요. 금액은 ¥ 표기."
 
 
 def _brand(db: Session) -> BrandProfile | None:
@@ -45,7 +54,8 @@ def _save(db: Session, kind: str, data: dict, source: str, start=None, end=None)
     return ins
 
 
-def _run(purpose: str, prompt: str, schema: dict, fallback, system: str = ANALYST_SYSTEM) -> tuple[dict, str]:
+def _run(purpose: str, prompt: str, schema: dict, fallback, system: str | None = None) -> tuple[dict, str]:
+    system = system or ANALYST_SYSTEM
     ai = get_ai()
     if ai.is_available():
         try:
@@ -67,7 +77,7 @@ def analyze_content(db: Session, days: int = 14) -> Insight:
         "좋은 게시 시간(현지 시각), 플랫폼별 차이, 다음 콘텐츠에 반영할 구체적 개선점. "
         "지표가 null 인 것은 플랫폼이 제공하지 않은 값입니다. data_limitations 에 표본 크기와 한계를 적으세요."
     )
-    data, source = _run("content_analysis", prompt, CONTENT_ANALYSIS, lambda: mock_ai.content_analysis(rows))
+    data, source = _run("content_analysis", prompt, CONTENT_ANALYSIS, lambda: mock_ai.content_analysis(rows), _system(db))
     data["post_count"] = len(rows)
     return _save(db, "content", data, source, start, end)
 
@@ -97,7 +107,7 @@ def analyze_ads(db: Session, days: int = 7, propose_actions: bool = True) -> Ins
         "pause/resume 은 사용자가 승인해야 실행됩니다. 광고 삭제·캠페인 생성·결제 변경은 제안하지 마세요. "
         "pause/resume 일 때 new_daily_budget 는 0 으로 두세요."
     )
-    data, source = _run("ads_analysis", prompt, ADS_ANALYSIS, lambda: mock_ai.ads_analysis(per_ad))
+    data, source = _run("ads_analysis", prompt, ADS_ANALYSIS, lambda: mock_ai.ads_analysis(per_ad), _system(db))
     data["totals"] = totals
     created_actions = []
     if propose_actions:
@@ -123,7 +133,9 @@ def generate_ad_creatives(db: Session, count: int = 3, focus: str = "") -> list[
     from app.services.ads_service import local_today
 
     brand = _brand(db)
-    lang = brand.language if brand else "ko"
+    from app.agents.base import lang_rule
+
+    lang = brand.language if brand else "ja"
     until = local_today()
     per_ad = ads_by_ad(db, until - timedelta(days=13), until)
     prompt = (
@@ -131,14 +143,15 @@ def generate_ad_creatives(db: Session, count: int = 3, focus: str = "") -> list[
         + (f"요청/초점: {focus}\n" if focus else "")
         + f"새 광고안 {count}개를 만드세요. 성과 좋은 광고의 특징(메시지 구조, 소구점)은 참고하되 문구를 그대로 복사하지 마세요. "
         "각 안: hook, primary_text, headline(짧게), description, cta, video_idea, image_idea, target_message, rationale(근거).\n"
-        + language_guide(lang)
+        "일본 시장·일본 거주 소비자 대상. 과장·허위 표현 금지 (景品表示法・薬機法). 번역체 금지, 짧고 자연스러운 일본 광고 카피.\n"
+        + lang_rule(lang)
     )
     data, source = _run(
         "ad_creative_generation",
         prompt,
         AD_CREATIVES,
         lambda: {"creatives": mock_ai.ad_creatives(brand, count, lang)},
-        system="당신은 퍼포먼스 광고 카피라이터입니다.\n" + COMMON_RULES,
+        system="당신은 일본 시장 전문 퍼포먼스 광고 카피라이터입니다.\n" + COMMON_RULES,
     )
     out = []
     based_on = [a["ad_id"] for a in per_ad[:5]]
@@ -174,7 +187,7 @@ def analyze_competitors(db: Session) -> Insight:
         "사용자가 공개 페이지에서 직접 확인해 입력한 경쟁사 관찰 기록입니다. 경쟁사의 주제/형식/업로드 빈도/반응/Hook 패턴을 정리하고, "
         "우리 브랜드가 '복제하지 않고' 차별화할 수 있는 아이디어를 제안하세요."
     )
-    data, source = _run("competitor_analysis", prompt, COMPETITOR_ANALYSIS, lambda: mock_ai.competitor_analysis(obs))
+    data, source = _run("competitor_analysis", prompt, COMPETITOR_ANALYSIS, lambda: mock_ai.competitor_analysis(obs), _system(db))
     return _save(db, "competitor", data, source)
 
 
@@ -187,7 +200,7 @@ def generate_strategy(db: Session) -> Insight:
         f"{brand_context(brand)}\n\n<latest_performance_analysis>\n{as_json(latest.data if latest else {})}\n</latest_performance_analysis>\n"
         "브랜드의 main_goal 에 맞춘 SNS 콘텐츠 전략을 세우세요: 콘텐츠 기둥(pillars), 주간 계획, 플랫폼별 전략, 지켜볼 KPI."
     )
-    data, source = _run("content_strategy", prompt, STRATEGY, lambda: mock_ai.strategy(brand))
+    data, source = _run("content_strategy", prompt, STRATEGY, lambda: mock_ai.strategy(brand), _system(db))
     return _save(db, "strategy", data, source)
 
 

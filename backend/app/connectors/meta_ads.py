@@ -183,14 +183,14 @@ class MockMetaAdsConnector(MetaAdsConnector):
 
     def fetch(self, since: date, until: date) -> AdsSnapshot:
         entities = [
-            {"level": "campaign", "external_id": "mock_c1", "parent_external_id": "", "name": "[MOCK] 판매 캠페인", "status": "ACTIVE", "objective": "OUTCOME_SALES", "daily_budget": None},
-            {"level": "adset", "external_id": "mock_as1", "parent_external_id": "mock_c1", "name": "[MOCK] 25-34 여성", "status": "ACTIVE", "daily_budget": 3000.0},
-            {"level": "adset", "external_id": "mock_as2", "parent_external_id": "mock_c1", "name": "[MOCK] 리타겟팅", "status": "ACTIVE", "daily_budget": 2000.0},
+            {"level": "campaign", "external_id": "mock_c1", "parent_external_id": "", "name": "[MOCK] 販売キャンペーン", "status": "ACTIVE", "objective": "OUTCOME_SALES", "daily_budget": None},
+            {"level": "adset", "external_id": "mock_as1", "parent_external_id": "mock_c1", "name": "[MOCK] 25-34歳 女性", "status": "ACTIVE", "daily_budget": 3000.0},
+            {"level": "adset", "external_id": "mock_as2", "parent_external_id": "mock_c1", "name": "[MOCK] リターゲティング", "status": "ACTIVE", "daily_budget": 2000.0},
         ]
         ads = [
-            ("mock_ad1", "mock_as1", "[MOCK] 광고 A - 사용 후기 영상", 0.025, 0.06),
-            ("mock_ad2", "mock_as1", "[MOCK] 광고 B - 제품 이미지", 0.008, 0.02),
-            ("mock_ad3", "mock_as2", "[MOCK] 광고 C - 할인 강조", 0.018, 0.045),
+            ("mock_ad1", "mock_as1", "[MOCK] 広告A - 使用レビュー動画", 0.025, 0.06),
+            ("mock_ad2", "mock_as1", "[MOCK] 広告B - 商品画像", 0.008, 0.02),
+            ("mock_ad3", "mock_as2", "[MOCK] 広告C - 割引訴求", 0.018, 0.045),
         ]
         insights = []
         for ad_id, adset, name, ctr_base, cvr_base in ads:

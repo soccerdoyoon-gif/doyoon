@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import abtests, ads, analytics, brand, calendar, chat, competitors, content, dashboard, logs, oauth, reports, settings, setup, system
+from app.api import abtests, ads, analytics, brand, calendar, chat, competitors, content, dashboard, logs, oauth, pipeline, reports, settings, setup, system
 from app.core.config import PROJECT_ROOT, get_settings
 from app.core.database import init_db
 from app.core.logging import get_logger, setup_logging
@@ -41,12 +41,15 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    for r in (system, setup, brand, content, calendar, dashboard, analytics, ads, abtests, competitors, chat, reports, logs, settings, oauth):
+    for r in (system, setup, brand, content, calendar, dashboard, analytics, ads, abtests, competitors, chat, reports, logs, settings, oauth, pipeline):
         app.include_router(r.router)
 
     media_dir = s.data_dir / "media"
     media_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/media", StaticFiles(directory=media_dir), name="media")
+    from app.media.storage import generated_root
+
+    app.mount("/generated", StaticFiles(directory=generated_root()), name="generated")
 
     if FRONTEND_DIST.exists():
         app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")

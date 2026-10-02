@@ -30,3 +30,6 @@ frontend/.vite/
 Thumbs.db
 .idea/
 .vscode/
+
+# --- AI 생성 파일 (이미지/영상) ---
+assets/generated/

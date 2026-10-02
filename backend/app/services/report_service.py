@@ -28,12 +28,42 @@ def _utc_range(start_day: date, end_day: date) -> tuple[datetime, datetime]:
     return s, e
 
 
+JA_LABELS = [  # 리포트 라벨 (ui_language=ja 일 때 일본어로 변환)
+    ("이번 주 가장 좋았던 콘텐츠 패턴", "今週もっとも良かったコンテンツパターン"),
+    ("가장 좋지 않았던 콘텐츠 패턴", "もっとも良くなかったコンテンツパターン"),
+    ("다음 주 테스트할 아이디어", "来週テストするアイデア"),
+    ("승인 대기(전체)", "承認待ち（全体）"), ("게시 완료", "投稿済み"), ("게시 실패", "投稿失敗"), ("예약 대기", "予約済み"),
+    ("오늘 게시물 없음", "本日の投稿なし"), ("예약된 게시물", "予約済みの投稿"), ("(mock 데이터 포함)", "（mockデータを含む）"),
+    ("mock 데이터", "mockデータ"), ("최근 7일", "直近7日"), ("데이터 부족", "データ不足"), ("데이터 없음", "データなし"),
+    ("평균 ER", "平均ER"), ("게시 ", "投稿 "), ("노출", "インプレッション"), ("조회", "再生"), ("좋아요", "いいね"),
+    ("댓글", "コメント"), ("공유", "シェア"), ("지출", "広告費"), ("클릭", "クリック"), ("개", "件"),
+]
+
+
+def _localize(md: str, lang: str) -> str:
+    if lang != "ja":
+        return md
+    for ko, ja in JA_LABELS:
+        md = md.replace(ko, ja)
+    return md
+
+
+def _yen(v) -> str:
+    return "N/A" if v is None else f"¥{v:,.0f}"
+
+
 def _fmt(v, nd=0, suffix="") -> str:
     if v is None:
         return "N/A"
     if isinstance(v, float) and nd:
         return f"{v:,.{nd}f}{suffix}"
     return f"{v:,.0f}{suffix}" if isinstance(v, (int, float)) else str(v)
+
+
+def _lang(db: Session) -> str:
+    from app.services.app_settings import ui_language
+
+    return ui_language(db)
 
 
 def _ai_insights(db: Session, stats: dict, kind: str) -> tuple[dict, str]:
@@ -43,8 +73,8 @@ def _ai_insights(db: Session, stats: dict, kind: str) -> tuple[dict, str]:
         try:
             data = ai.generate_json(
                 f"{kind}_report",
-                "당신은 SNS 마케팅 매니저입니다. 주어진 수치만 근거로 간결한 인사이트와 계획을 작성하세요.\n" + COMMON_RULES
-                + "\n" + language_guide(brand.language if brand else "ko"),
+                "당신은 일본 시장 담당 SNS 마케팅 매니저입니다. 주어진 수치만 근거로 간결한 인사이트와 계획을 작성하세요. 금액은 ¥.\n"
+                + COMMON_RULES + ("\n일본어로 작성하세요." if _lang(db) == "ja" else "\n한국어로 작성하세요."),
                 f"{brand_context(brand)}\n\n<stats>\n{as_json(stats)}\n</stats>\n"
                 + ("오늘 인사이트 3-5개와 내일 계획 3-5개를 작성하세요." if kind == "daily"
                    else "이번 주 가장 좋았던 콘텐츠 패턴, 가장 좋지 않았던 패턴, 다음 주 테스트할 아이디어를 작성하세요."),
@@ -65,6 +95,9 @@ def _content_lines(rows: list[dict]) -> list[str]:
 
 
 def _save(db: Session, rtype: str, start: date, end: date, md: str, data: dict) -> Report:
+    from app.services.app_settings import ui_language
+
+    md = _localize(md, ui_language(db))
     s, e = _utc_range(start, end)
     folder = get_settings().data_dir / "reports"
     folder.mkdir(parents=True, exist_ok=True)
@@ -117,11 +150,11 @@ def build_daily_report(db: Session, day: date | None = None) -> Report:
         else:
             md.append("- 오늘 게시물 없음")
         md.append("")
-    md += ["## Ads", f"- 지출 {_fmt(ads_t['spend'])} · 클릭 {_fmt(ads_t['clicks'])} · CTR {_fmt(ads_t['ctr'], 2, '%')} · CPC {_fmt(ads_t['cpc'], 1)} · "
-           f"CPA {_fmt(ads_t['cpa'], 1)} · ROAS {_fmt(ads_t['roas'], 2)}" + (" (mock 데이터)" if ads_t["mock_data"] else ""), "",
+    md += ["## Ads", f"- 지출 {_yen(ads_t['spend'])} · 클릭 {_fmt(ads_t['clicks'])} · CTR {_fmt(ads_t['ctr'], 2, '%')} · CPC {_yen(ads_t['cpc'])} · "
+           f"CPA {_yen(ads_t['cpa'])} · ROAS {_fmt(ads_t['roas'], 2)}" + (" (mock 데이터)" if ads_t["mock_data"] else ""), "",
            "## BEST CONTENT (최근 7일)", *_content_lines(best), "", "## WORST CONTENT (최근 7일)", *_content_lines(worst), "",
            "## AD PERFORMANCE"]
-    md += [f"- {a['name']}: 지출 {_fmt(a['spend'])}, CTR {_fmt(a['ctr'], 2, '%')}, CPA {_fmt(a['cpa'], 1)}, ROAS {_fmt(a['roas'], 2)}" for a in per_ad] or ["- 데이터 없음"]
+    md += [f"- {a['name']}: 지출 {_yen(a['spend'])}, CTR {_fmt(a['ctr'], 2, '%')}, CPA {_yen(a['cpa'])}, ROAS {_fmt(a['roas'], 2)}" for a in per_ad] or ["- 데이터 없음"]
     md += ["", f"## AI INSIGHTS ({source})", *[f"- {x}" for x in ai_data.get("insights", [])], "",
            "## TOMORROW PLAN", f"- 예약된 게시물 {len(tomorrow)}개",
            *[f"  - {to_local(t.scheduled_at).strftime('%H:%M')} [{PLATFORM_LABEL.get(t.platform, t.platform)}] {t.title[:50]}" for t in tomorrow],
@@ -164,8 +197,8 @@ def build_weekly_report(db: Session, end_day: date | None = None) -> Report:
           f"- Total posts: {stats['total_posts']}", f"- Total impressions: {_fmt(stats['total_impressions'])}",
           f"- Total views: {_fmt(stats['total_views'])}", f"- Total engagement: {_fmt(stats['total_engagement'])}",
           f"- Follower growth: {_fmt(stats['follower_growth'])}", "",
-          "## Advertising", f"- Spend: {_fmt(ads_t['spend'])}", f"- Clicks: {_fmt(ads_t['clicks'])}",
-          f"- Conversions: {_fmt(ads_t['conversions'])}", f"- CPA: {_fmt(ads_t['cpa'], 1)}", f"- ROAS: {_fmt(ads_t['roas'], 2)}",
+          "## Advertising", f"- Spend: {_yen(ads_t['spend'])}", f"- Clicks: {_fmt(ads_t['clicks'])}",
+          f"- Conversions: {_fmt(ads_t['conversions'])}", f"- CPA: {_yen(ads_t['cpa'])}", f"- ROAS: {_fmt(ads_t['roas'], 2)}",
           *(["- (mock 데이터 포함)"] if ads_t["mock_data"] else []), "",
           "## BEST CONTENT", *_content_lines(best), "", "## WORST CONTENT", *_content_lines(worst), "",
           f"## 이번 주 가장 좋았던 콘텐츠 패턴 ({source})", *([f"- {x}" for x in ai_data.get("best_patterns", [])] or ["- 데이터 부족"]), "",

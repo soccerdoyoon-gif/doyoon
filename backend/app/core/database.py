@@ -49,6 +49,9 @@ def init_db() -> None:
     from app import models  # noqa: F401  (register models)
 
     Base.metadata.create_all(bind=engine)
+    from app.core.migrate import add_missing_columns
+
+    add_missing_columns(engine)
 
 
 def get_db() -> Iterator[Session]:

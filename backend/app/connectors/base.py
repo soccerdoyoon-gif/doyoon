@@ -35,6 +35,7 @@ class PublishRequest:
     thread: list[str] = field(default_factory=list)
     media_url: str = ""
     media_path: str = ""
+    media_urls: list[str] = field(default_factory=list)  # Instagram 캐러셀 (순서대로)
 
     @property
     def full_caption(self) -> str:

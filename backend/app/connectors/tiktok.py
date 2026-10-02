@@ -94,7 +94,8 @@ class TikTokConnector(BaseConnector):
         }
         upload_url = None
         size = 0
-        if req.media_url:
+        # 서버에 파일이 있으면 직접 업로드(FILE_UPLOAD, 도메인 인증 불필요), 없으면 URL 방식
+        if req.media_url and not (req.media_path and os.path.exists(req.media_path)):
             source = {"source": "PULL_FROM_URL", "video_url": req.media_url}
         else:
             size = os.path.getsize(req.media_path)

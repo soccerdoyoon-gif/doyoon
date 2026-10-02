@@ -75,10 +75,15 @@ def create_content(body: ContentIn, db: Session = Depends(get_db)):
 
 @router.post("/generate")
 def generate(body: GenerateIn, db: Session = Depends(get_db)):
-    try:
-        return generate_content(db, count=body.count, platforms=body.platforms, theme=body.theme, campaign_id=body.campaign_id)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+    """에이전트 파이프라인을 백그라운드로 시작 → /api/pipeline/runs/{id} 로 진행 확인."""
+    from app.agents.pipeline import start_run
+
+    if db.query(BrandProfile).first() is None:
+        raise HTTPException(400, "먼저 브랜드 프로필을 등록하세요 (설치 마법사 또는 Brand Profile 메뉴).")
+    params = {k: v for k, v in {"idea_count": body.count, "platforms": body.platforms, "theme": body.theme,
+                                "campaign_id": body.campaign_id}.items() if v not in (None, "")}
+    run = start_run(db, params, background=True)
+    return {"run_id": run.id, "status": run.status}
 
 
 @router.put("/{cid}")

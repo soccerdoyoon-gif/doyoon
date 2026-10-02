@@ -10,9 +10,10 @@ class BrandIn(BaseModel):
     brand_name: str = Field(min_length=1, max_length=200)
     brand_description: str = ""
     product_description: str = ""
-    target_customer: str = ""
+    target_customer: str = "日本在住の消費者"
     country: str = "JP"
-    language: str = Field(default="ko", pattern="^(ko|ja|en)$")
+    default_style: str = "親しみやすい"
+    language: str = Field(default="ja", pattern="^(ko|ja|en)$")
     brand_voice: str = ""
     brand_values: str = ""
     forbidden_words: list[str] = []
@@ -76,7 +77,7 @@ class ContentUpdate(BaseModel):
 
 
 class GenerateIn(BaseModel):
-    count: int | None = Field(default=None, ge=5, le=20)
+    count: int | None = Field(default=None, ge=1, le=10)  # 아이디어 수
     platforms: list[str] | None = None
     theme: str = ""
     campaign_id: int | None = None

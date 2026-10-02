@@ -27,7 +27,15 @@ class ContentItem(Base):
     media_idea: Mapped[str] = mapped_column(Text, default="")
     media_path: Mapped[str] = mapped_column(String(500), default="")
     media_url: Mapped[str] = mapped_column(String(1000), default="")
-    language: Mapped[str] = mapped_column(String(10), default="ko")
+    language: Mapped[str] = mapped_column(String(10), default="ja")
+    idea_id: Mapped[int | None] = mapped_column(ForeignKey("content_ideas.id"), nullable=True, index=True)
+    style: Mapped[str] = mapped_column(String(40), default="")
+    thumbnail_text: Mapped[str] = mapped_column(String(200), default="")
+    video_title: Mapped[str] = mapped_column(String(300), default="")  # YouTube Shorts 등 영상 제목
+    scenes: Mapped[list] = mapped_column(JSON, default=list)  # 숏폼 장면 정보
+    video_prompt: Mapped[str] = mapped_column(Text, default="")  # 외부 영상 생성 AI 용 프롬프트
+    music_style: Mapped[str] = mapped_column(String(200), default="")
+    guardian: Mapped[dict] = mapped_column(JSON, default=dict)  # Brand Guardian 검사 결과
     campaign_id: Mapped[int | None] = mapped_column(ForeignKey("campaigns.id"), nullable=True)
 
     status: Mapped[str] = mapped_column(String(30), default="DRAFT", index=True)
@@ -55,6 +63,63 @@ class ContentItem(Base):
     metrics: Mapped[list["PostMetrics"]] = relationship(
         back_populates="content", cascade="all, delete-orphan", order_by="PostMetrics.id"
     )
+    assets: Mapped[list["GeneratedAsset"]] = relationship(cascade="all, delete-orphan", order_by="GeneratedAsset.order")
+
+
+class ContentIdea(Base):
+    """하나의 아이디어 → 플랫폼별 콘텐츠 패키지 (Instagram / TikTok / X / Ads)."""
+
+    __tablename__ = "content_ideas"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(300), default="")
+    concept: Mapped[str] = mapped_column(Text, default="")
+    angle: Mapped[str] = mapped_column(Text, default="")
+    style: Mapped[str] = mapped_column(String(40), default="")
+    trend_refs: Mapped[list] = mapped_column(JSON, default=list)
+    language: Mapped[str] = mapped_column(String(10), default="ja")
+    pipeline_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str] = mapped_column(String(20), default="ai")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class GeneratedAsset(Base):
+    """AI/서버가 생성한 이미지·영상·썸네일·음성·자막 파일 (assets/generated/...)."""
+
+    __tablename__ = "generated_assets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    content_id: Mapped[int | None] = mapped_column(ForeignKey("content_items.id", ondelete="CASCADE"), nullable=True, index=True)
+    ad_creative_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    idea_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    kind: Mapped[str] = mapped_column(String(20))  # image / video / thumbnail / subtitle / scenes
+    purpose: Mapped[str] = mapped_column(String(30), default="")  # feed / story / carousel / ad_banner / reel / tiktok ...
+    path: Mapped[str] = mapped_column(String(500))  # assets/ 기준 상대 경로
+    aspect: Mapped[str] = mapped_column(String(10), default="")
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration: Mapped[float | None] = mapped_column(Float, nullable=True)
+    order: Mapped[int] = mapped_column(Integer, default=0)
+    provider: Mapped[str] = mapped_column(String(30), default="template")
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    overlay_text: Mapped[str] = mapped_column(String(200), default="")
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PipelineRun(Base):
+    """에이전트 파이프라인 실행 기록 (진행 상황 표시용)."""
+
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    request: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="RUNNING")  # RUNNING / DONE / ERROR
+    steps: Mapped[list] = mapped_column(JSON, default=list)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class PostAttempt(Base):

@@ -18,6 +18,13 @@ os.environ.update(
         "SCHEDULER_ENABLED": "false",
         "DRY_RUN": "true",
         "TIMEZONE": "Asia/Tokyo",
+        "ASSETS_DIR": os.path.join(_TMP, "assets"),
+        "VOICEVOX_URL": "",
+        "IMAGE_PROVIDER": "template",
+        "OPENAI_API_KEY": "",
+        "VIDEO_FPS": "24",
+        "PIPELINE_BACKGROUND": "false",
+        "VIDEO_PRESET": "ultrafast",
     }
 )
 # .env / data/secrets.env 에 실제 키가 있어도 테스트에서는 비활성화
@@ -45,6 +52,11 @@ def fresh_db():
     yield
     set_ai_override(None)
     registry._overrides.clear()
+    from app.media.image_providers import set_image_override
+    from app.media.tts import set_tts_override
+
+    set_image_override(None)
+    set_tts_override(None)
 
 
 @pytest.fixture
@@ -66,6 +78,7 @@ def settings_env(monkeypatch):
         return reload_settings()
 
     yield apply
+    monkeypatch.undo()  # 환경변수를 먼저 되돌린 뒤 설정을 다시 읽어야 다음 테스트에 새지 않음
     reload_settings()
 
 
@@ -73,15 +86,15 @@ def settings_env(monkeypatch):
 def brand(db):
     b = BrandProfile(
         brand_name="Sakura Tea",
-        brand_description="교토의 유기농 녹차 브랜드",
-        product_description="유기농 말차 파우더",
-        main_products="말차 파우더, 호지차 티백",
-        target_customer="25-39세 건강에 관심 많은 직장인",
+        brand_description="京都のオーガニック緑茶ブランド",
+        product_description="オーガニック抹茶パウダー",
+        main_products="抹茶パウダー、ほうじ茶ティーバッグ",
+        target_customer="日本在住の25〜39歳の健康志向の会社員",
         country="JP",
-        language="ko",
-        brand_voice="따뜻하고 차분한",
-        forbidden_words=["최고", "100% 효과"],
-        preferred_words=["유기농"],
+        language="ja",
+        brand_voice="やさしく落ち着いた",
+        forbidden_words=["最高級", "奇跡"],
+        preferred_words=["オーガニック"],
         competitors=["Matcha Co"],
         main_goal="sales",
     )
@@ -116,35 +129,94 @@ class FakeMessages:
         return self.owner.default(params)
 
 
+def fill(schema):
+    """JSON schema 를 만족하는 기본값 (일본어 문자열)."""
+    t = schema.get("type")
+    if "enum" in schema:
+        return schema["enum"][0]
+    if t == "object":
+        return {k: fill(v) for k, v in schema.get("properties", {}).items()}
+    if t == "array":
+        return [fill(schema["items"])]
+    if t == "integer":
+        return 7
+    if t == "number":
+        return 2.0
+    if t == "boolean":
+        return True
+    return "テスト"
+
+
+def tagged_json(prompt, tag):
+    m = re.search(rf"<{tag}>\s*(.*?)\s*</{tag}>", prompt, re.S)
+    return json.loads(m.group(1)) if m else []
+
+
 class FakeSDK:
     """anthropic.Anthropic 대체. 구조화 출력 스키마를 보고 그럴듯한 JSON 을 돌려줍니다."""
 
     def __init__(self):
         self.calls: list[dict] = []
         self.queue: list = []
+        self.review_override = None  # callable(item) -> review dict
         self.messages = FakeMessages(self)
         self.beta = SimpleNamespace(messages=FakeMessages(self))
 
     def default(self, params):
+        if params.get("tools") and params["tools"][0].get("type", "").startswith("web_search"):
+            return _resp([
+                SimpleNamespace(type="server_tool_use", id="s1", name="web_search", input={"query": "TikTok 日本 トレンド"}),
+                SimpleNamespace(type="web_search_tool_result", tool_use_id="s1", content=[
+                    SimpleNamespace(type="web_search_result", url="https://example.jp/trend", title="日本のTikTokトレンド")]),
+                SimpleNamespace(type="text", text="・日本のTikTokでは正直レビュー形式が人気"),
+            ])
         schema = params.get("output_config", {}).get("format", {}).get("schema", {})
         props = schema.get("properties", {})
         prompt = params["messages"][0]["content"] if params.get("messages") else ""
+        if "ideas" in props:
+            n = int(re.search(r"アイデアを(\d+)個", prompt).group(1))
+            return text_resp({"ideas": [{"title": f"アイデア{i}", "concept": "朝のルーティン", "angle": "正直レビュー", "target_insight": "忙しい",
+                                         "style": "親しみやすい", "trend_refs": ["正直レビュー"], "hook_direction": "これ、知らないと損。"} for i in range(n)]})
+        if "packages" in props:
+            ideas = tagged_json(prompt, "ideas")
+            return text_resp({"packages": [{
+                "idea_index": i,
+                "instagram": {"content_type": "carousel" if i % 2 else "post", "hook": "これ、知らないと損。", "caption": "朝の一杯で気分が変わる。",
+                              "cta": "保存して見返してね", "hashtags": ["おすすめ", "#暮らし", "#暮らし"], "carousel_slides": ["1枚目", "2枚目", "3枚目"],
+                              "thumbnail_text": "知らないと損"},
+                "tiktok": {"hook": "3秒だけ見て。", "caption": "朝のルーティン", "cta": "プロフから見てね", "hashtags": ["#おすすめ", "#購入品"],
+                           "thumbnail_text": "3秒だけ見て", "youtube_shorts_title": "朝の一杯"},
+                "x": {"post_type": "tweet", "post": "これ地味に便利。みんなはどうしてる？", "thread": []},
+                "facebook": {"post": "テスト", "hashtags": []},
+                "ads": {"headline": "毎朝を、ちょっと特別に", "primary_text": "テスト本文", "description": "説明", "cta": "詳しくはこちら", "image_text": "毎朝を特別に"},
+            } for i, _ in enumerate(ideas)]})
+        if "scripts" in props:
+            vids = tagged_json(prompt, "videos")
+            return text_resp({"scripts": [{"item_key": v["item_key"], "music_style": "lofi", "video_prompt": "vertical video, Tokyo",
+                                           "scenes": [{"scene_id": 1, "duration": 1.0, "purpose": "hook", "visual": "東京の街を歩く若者", "camera": "寄り",
+                                                       "voiceover": "これ、知ってる？", "subtitle": "これ、知ってる？", "music_style": ""},
+                                                      {"scene_id": 2, "duration": 1.5, "purpose": "cta", "visual": "商品", "camera": "引き",
+                                                       "voiceover": "保存してね。", "subtitle": "保存してね。", "music_style": ""}]} for v in vids]})
+        if "briefs" in props:
+            items = tagged_json(prompt, "items")
+            return text_resp({"briefs": [{"item_key": it["item_key"], "color_mood": "ナチュラル",
+                                          "images": [{"purpose": p, "overlay_text": "朝を変える", "sub_text": "", "visual_prompt": "matcha on a table"}
+                                                     for p in it["purposes"]]} for it in items]})
+        if "reviews" in props:
+            items = tagged_json(prompt, "items")
+            out = []
+            for it in items:
+                rv = {"item_key": it["item_key"], "verdict": "pass", "issues": [], "score_note": "良い",
+                      "corrected": {"hook": "", "caption": "", "cta": "", "thumbnail_text": "", "hashtags": [], "thread": [], "subtitles": []},
+                      "scores": {"hook_strength": 9, "target_audience_fit": 8, "brand_consistency": 8, "cta_quality": 7, "originality": 6, "expected_engagement": 8}}
+                if self.review_override:
+                    rv = self.review_override(it, rv)
+                out.append(rv)
+            return text_resp({"reviews": out})
         if "candidates" in props:
             slots = json.loads(re.search(r"(\[\{\"slot\".*?\}\])", prompt, re.S).group(1))
-            return text_resp({"candidates": [
-                {"slot": s["slot"], "platform": s["platform"], "content_type": s["content_type"], "title": f"AI title {s['slot']}",
-                 "idea": "idea", "hook": "강한 훅", "caption": "유기농 말차 이야기", "script": "", "structure": [], "thread": [],
-                 "cta": "프로필 링크", "hashtags": ["#말차"], "media_idea": "photo", "suggested_time_local": "20:30", "rationale": "r"}
-                for s in slots]})
-        if "scores" in props:
-            n = prompt.count('"index"')
-            return text_resp({"scores": [{"index": i, "hook_strength": 9, "target_audience_fit": 8, "brand_consistency": 8,
-                                          "cta_quality": 7, "originality": 6, "expected_engagement": 8, "note": "good"} for i in range(n)]})
-        # generic: fill every required field with empty values of the right type
-        def empty(p):
-            t = p.get("type")
-            return [] if t == "array" else 0 if t in ("integer", "number") else "AI summary" if t == "string" else {}
-        return text_resp({k: empty(v) for k, v in props.items()})
+            return text_resp({"candidates": [{**fill(props["candidates"]["items"]), "slot": s["slot"], "platform": s["platform"], "content_type": s["content_type"]} for s in slots]})
+        return text_resp(fill(schema) if schema else {})
 
 
 @pytest.fixture

@@ -17,9 +17,9 @@ def api():
 
 SETUP = {
     "brand": {
-        "brand_name": "Sakura Tea", "brand_description": "교토 녹차", "product_description": "말차", "target_customer": "직장인",
-        "country": "JP", "language": "ja", "brand_voice": "차분", "forbidden_words": ["최고"], "competitors": ["Matcha Co"],
-        "main_goal": "sales", "main_products": "말차 파우더",
+        "brand_name": "Sakura Tea", "brand_description": "京都の緑茶ブランド", "product_description": "抹茶", "target_customer": "日本在住の会社員",
+        "country": "JP", "language": "ja", "brand_voice": "落ち着いた", "forbidden_words": ["最強"], "competitors": ["Matcha Co"],
+        "main_goal": "sales", "main_products": "抹茶パウダー",
     },
     "platforms_enabled": {"instagram": True, "tiktok": True, "x": True, "facebook": False},
     "secrets": {},
@@ -36,10 +36,17 @@ def test_full_loop(api):
     assert api.get("/api/ads/budget-guard").json()["daily_budget_limit"] == 8000
     assert api.get("/api/competitors").json()[0]["name"] == "Matcha Co"
 
-    gen = api.post("/api/content/generate", json={"count": 6}).json()
-    assert len(gen["created_ids"]) == 6
+    gen = api.post("/api/content/generate", json={"count": 2}).json()
+    run = api.get(f"/api/pipeline/runs/{gen['run_id']}").json()
+    assert run["status"] == "DONE", run["error"]
+    assert len(run["result"]["created_ids"]) == 6  # 아이디어 2개 × Instagram/TikTok/X
     queue = api.get("/api/content", params={"status": "READY_FOR_REVIEW"}).json()
-    assert len(queue) == 6 and queue[0]["language"] == "ja"
+    assert len(queue) == 6 and all(q["language"] == "ja" for q in queue)
+    pkg = api.get(f"/api/ideas/{run['result']['idea_ids'][0]}").json()
+    assert len(pkg["contents"]) == 3 and pkg["ads"][0]["assets"]
+    tiktok = [q for q in queue if q["platform"] == "tiktok"][0]
+    video = [a for a in tiktok["assets"] if a["kind"] == "video"][0]
+    assert api.get(video["url"]).status_code == 200  # /generated/... 로 파일 제공
     scores = [q["score_total"] for q in queue]
     assert scores == sorted(scores, reverse=True)  # 점수순 정렬
 
@@ -94,12 +101,12 @@ def test_full_loop(api):
     for section in ("## TODAY", "## Instagram", "## TikTok", "## X", "## Ads", "## BEST CONTENT", "## WORST CONTENT", "## AD PERFORMANCE", "## AI INSIGHTS", "## TOMORROW PLAN"):
         assert section in md
     weekly = api.post("/api/reports/weekly").json()
-    for key in ("Total posts", "Total impressions", "Total views", "Total engagement", "Follower growth", "Spend", "Clicks", "Conversions", "CPA", "ROAS", "다음 주 테스트할 아이디어"):
+    for key in ("Total posts", "Total impressions", "Total views", "Total engagement", "Follower growth", "Spend: ¥", "Clicks", "Conversions", "CPA", "ROAS", "来週テストするアイデア"):
         assert key in weekly["content_md"]
     assert len(api.get("/api/reports").json()) == 2
 
     chat = api.post("/api/chat", json={"session_id": "s1", "message": "이번 주 Instagram 성과 어때?"}).json()
-    assert chat["mode"] == "mock_ai" and "[MOCK AI]" in chat["answer"] and "x: 게시 1개" in chat["answer"]
+    assert chat["mode"] == "mock_ai" and "[MOCK AI]" in chat["answer"] and "게시 1개" in chat["answer"]
     assert "None" not in chat["answer"]
     assert len(api.get("/api/chat/s1").json()) == 2
 
@@ -120,7 +127,7 @@ def test_workflow_rules(api):
     # 승인 후 문구 수정 → 재승인 필요
     assert api.put(f"/api/content/{c['id']}", json={"caption": "changed"}).json()["status"] == "READY_FOR_REVIEW"
     # 금지어 포함 시 승인 거부
-    api.put(f"/api/content/{c['id']}", json={"caption": "우리가 최고"})
+    api.put(f"/api/content/{c['id']}", json={"caption": "うちが最強"})
     r = api.post(f"/api/content/{c['id']}/approve", json={})
     assert r.status_code == 400 and "금지어" in r.json()["detail"]
     assert api.post(f"/api/content/{c['id']}/reject", json={"note": "no"}).json()["status"] == "REJECTED"

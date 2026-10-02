@@ -1,6 +1,6 @@
 from app.models.ads import AdCreativeDraft, AdEntity, AdInsightDaily, PendingAction
 from app.models.brand import AppSetting, BrandProfile, Campaign
-from app.models.content import ContentItem, PostAttempt, PostMetrics
+from app.models.content import ContentIdea, ContentItem, GeneratedAsset, PipelineRun, PostAttempt, PostMetrics
 from app.models.insights import (
     ABTest,
     ABVariant,
@@ -24,7 +24,10 @@ __all__ = [
     "ChatMessage",
     "Competitor",
     "CompetitorObservation",
+    "ContentIdea",
     "ContentItem",
+    "GeneratedAsset",
+    "PipelineRun",
     "EventLog",
     "Insight",
     "PendingAction",

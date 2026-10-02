@@ -90,7 +90,10 @@ class AdCreativeDraft(Base):
     target_message: Mapped[str] = mapped_column(Text, default="")
     rationale: Mapped[str] = mapped_column(Text, default="")
     based_on: Mapped[list] = mapped_column(JSON, default=list)
-    language: Mapped[str] = mapped_column(String(10), default="ko")
+    language: Mapped[str] = mapped_column(String(10), default="ja")
+    idea_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_asset_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    video_asset_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="DRAFT")  # DRAFT/APPROVED/REJECTED
     source: Mapped[str] = mapped_column(String(20), default="ai")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

@@ -45,9 +45,14 @@ def job_daily_generation() -> None:
 
 
 def job_daily_analysis() -> None:
+    from app.agents.posting_times import learn
     from app.ai.analyzer import analyze_content
 
-    _run("daily_analysis", lambda db: analyze_content(db))
+    def fn(db):
+        analyze_content(db)
+        learn(db)  # JST 게시 시간 재학습
+
+    _run("daily_analysis", fn)
 
 
 def job_sync_ads() -> None:
